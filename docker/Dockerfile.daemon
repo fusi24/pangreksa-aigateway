@@ -1,0 +1,49 @@
+# ─── Stage 1: Build ──────────────────────────────────────────────────────────
+# Uses the full Go toolchain to compile a statically linked binary.
+# CGO is disabled to produce a dependency-free binary compatible with distroless.
+FROM golang:1.22-alpine AS builder
+
+# Install git for go mod download of private/VCS-tagged modules.
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /src
+
+# Copy go.mod and go.sum first so Docker can cache the dependency download layer.
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the full source tree.
+COPY . .
+
+# Build the daemon binary with linker flags to strip debug info and reduce size.
+# CGO_ENABLED=0 ensures a pure-Go static binary.
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build \
+      -ldflags="-s -w -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      -o /bin/gateway-daemon \
+      ./cmd/daemon
+
+# ─── Stage 2: Runtime ─────────────────────────────────────────────────────────
+# distroless/static has no shell, no package manager, no libc — minimal attack surface.
+FROM gcr.io/distroless/static-debian12
+
+# Copy CA certificates for outbound HTTPS calls to LLM providers.
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Copy timezone data for correct TIMESTAMPTZ handling.
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+
+# Copy the compiled binary.
+COPY --from=builder /bin/gateway-daemon /gateway-daemon
+
+# Expose one port per LLM provider listener.
+# 8080 = OpenAI, 8081 = Claude, 8082 = Moonshot, 8083 = Ollama
+EXPOSE 8080 8081 8082 8083
+
+# Expose the health / Prometheus metrics port.
+EXPOSE 9090
+
+# Run as non-root (distroless uid 65532 = nonroot).
+USER 65532:65532
+
+ENTRYPOINT ["/gateway-daemon"]

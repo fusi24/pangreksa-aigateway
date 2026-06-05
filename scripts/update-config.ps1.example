@@ -1,0 +1,14 @@
+# Encrypt and store real LLM provider API keys in the Pangreksa AI Gateway database.
+# Copy this file to `update-config.ps1` and fill in your real API keys.
+# NOTE: update-config.ps1 is gitignored — never commit real keys.
+#
+# Run once after seed-dev.ps1. Safe to re-run (inserts a new config row each time).
+
+$env:DATABASE_URL        = "postgres://pangreksa:devpassword@192.168.32.161:5432/pangreksa?sslmode=disable"
+$env:ENCRYPT_KEY         = "0000000000000000000000000000000000000000000000000000000000000000"
+$env:ANTHROPIC_API_KEY   = "<your-anthropic-api-key>"
+$env:KIMI_API_KEY        = "<your-moonshot-kimi-api-key>"
+$env:OPENAI_API_KEY      = "<your-openai-api-key>"
+
+Write-Host "Updating provider API keys..." -ForegroundColor Cyan
+go run ./cmd/update-config

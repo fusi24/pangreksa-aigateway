@@ -1,0 +1,47 @@
+# ─── Stage 1: Build ──────────────────────────────────────────────────────────
+# Uses the full Go toolchain to compile a statically linked binary.
+FROM golang:1.22-alpine AS builder
+
+# Install git for go mod download of private/VCS-tagged modules.
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /src
+
+# Copy go.mod and go.sum first so Docker can cache the dependency download layer.
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the full source tree.
+COPY . .
+
+# Build the server binary with linker flags to strip debug info and reduce size.
+# CGO_ENABLED=0 ensures a pure-Go static binary compatible with distroless.
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build \
+      -ldflags="-s -w -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      -o /bin/central-server \
+      ./cmd/server
+
+# ─── Stage 2: Runtime ─────────────────────────────────────────────────────────
+# distroless/static has no shell, no package manager, no libc — minimal attack surface.
+FROM gcr.io/distroless/static-debian12
+
+# Copy CA certificates for outbound HTTPS calls (LLM providers, OTEL collector).
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Copy timezone data.
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+
+# Copy the compiled binary.
+COPY --from=builder /bin/central-server /central-server
+
+# Copy SQL migration files so the server can apply them on startup.
+COPY --from=builder /src/migrations /migrations
+
+# Expose the Central Server HTTP API port.
+EXPOSE 9000
+
+# Run as non-root (distroless uid 65532 = nonroot).
+USER 65532:65532
+
+ENTRYPOINT ["/central-server"]

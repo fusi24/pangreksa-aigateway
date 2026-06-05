@@ -1,0 +1,44 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Gateway Engine",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/daemon",
+      "env": {
+        "GATEWAY_ID": "gw-dev-001",
+        "CONFIG_SERVER_URL": "http://localhost:9000",
+        "DAEMON_API_KEY": "dev-daemon-key-changeme",
+        "REDIS_URL": "redis://192.168.32.161:6379",
+        "KAFKA_BROKERS": "192.168.32.161:9094",
+        "POLL_INTERVAL_SEC": "30",
+        "MAX_LIVENESS_RETRIES": "0",
+        "ENCRYPT_KEY": "0000000000000000000000000000000000000000000000000000000000000000",
+        "LOG_LEVEL": "debug",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "192.168.32.161:4317"
+      },
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Central Server Engine",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/server",
+      "env": {
+        "DATABASE_URL": "postgres://pangreksa:devpassword@192.168.32.161:5432/pangreksa?sslmode=disable",
+        "REDIS_URL": "redis://192.168.32.161:6379",
+        "KAFKA_BROKERS": "192.168.32.161:9094",
+        "SERVER_PORT": "9000",
+        "ADMIN_API_KEY": "dev-admin-key-changeme",
+        "DAEMON_API_KEY": "dev-daemon-key-changeme",
+        "ENCRYPT_KEY": "0000000000000000000000000000000000000000000000000000000000000000",
+        "LOG_LEVEL": "debug",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "192.168.32.161:4317"
+      },
+      "console": "integratedTerminal"
+    }
+  ]
+}

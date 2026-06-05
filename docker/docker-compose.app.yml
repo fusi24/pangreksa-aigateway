@@ -1,0 +1,62 @@
+version: "3.9"
+
+# Application services for Pangreksa AI Gateway Engine.
+# Infrastructure services (PostgreSQL, Redis, Kafka, OTEL, Jaeger) run on udocker01
+# and are accessed via external network addresses.
+
+services:
+
+  # ── Central Server ────────────────────────────────────────────────────────
+  # Control plane: config store, entitlement API, Kafka consumer, PostgreSQL.
+  # Start this BEFORE gateway-daemon — the daemon blocks on a liveness probe
+  # to POST /health until the server responds.
+  central-server:
+    image: pangreksa/central-server:latest
+    container_name: pangreksa-central-server
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    env_file:
+      - ../configs/server.env.example
+    environment:
+      # Override defaults from env file with runtime values if needed.
+      # DATABASE_URL, REDIS_URL, KAFKA_BROKERS etc. come from env_file.
+      LOG_LEVEL: "info"
+    healthcheck:
+      test: ["CMD", "/bin/sh", "-c", "wget -qO- http://localhost:9000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - pangreksa-app
+
+  # ── Gateway Daemon ────────────────────────────────────────────────────────
+  # Hot-path proxy: entitlement, registry, policy, LLM dispatch.
+  # Exposes one port per LLM provider listener.
+  gateway-daemon:
+    image: pangreksa/gateway-daemon:latest
+    container_name: pangreksa-gateway-daemon
+    restart: unless-stopped
+    ports:
+      - "8080:8080"   # OpenAI-compatible proxy
+      - "8081:8081"   # Anthropic Claude proxy
+      - "8082:8082"   # Moonshot/Kimi proxy
+      - "8083:8083"   # Ollama local model proxy
+      - "9090:9090"   # Health + Prometheus metrics
+    env_file:
+      - ../configs/daemon.env.example
+    environment:
+      LOG_LEVEL: "info"
+      CONFIG_SERVER_URL: "http://central-server:9000"
+    depends_on:
+      central-server:
+        condition: service_healthy
+    networks:
+      - pangreksa-app
+
+networks:
+  pangreksa-app:
+    driver: bridge
+    # If you want this compose stack to reach infra containers on udocker01,
+    # configure your Docker host routing or use host-mode networking instead.
