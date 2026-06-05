@@ -31,6 +31,10 @@ type Entitlement struct {
 	// AllowedMCPs is the list of MCP server name patterns the user may call.
 	// Stored as JSONB in PostgreSQL; unmarshalled on read.
 	AllowedMCPs []string
+	// Permissions is the list of RBAC permission tokens for this user
+	// (e.g. "console.observability.read"). Stored as JSONB; used to populate
+	// the JWT perms claim at console login.
+	Permissions []string
 	// BudgetLimitUSD is the maximum spend in USD allowed for this user.
 	BudgetLimitUSD float64 `db:"budget_limit_usd"`
 	// RateLimitRPM is the maximum number of requests per minute.
@@ -63,7 +67,7 @@ func NewEntitlementRepository(db *DB) *EntitlementRepository {
 func (r *EntitlementRepository) FindByUserID(ctx context.Context, userID string) (*Entitlement, error) {
 	const q = `
 		SELECT id, user_id, org_id,
-		       allowed_prompts, allowed_skills, allowed_mcps,
+		       allowed_prompts, allowed_skills, allowed_mcps, permissions,
 		       budget_limit_usd, rate_limit_rpm, rate_limit_tpm,
 		       data_scope, updated_at
 		FROM user_entitlements
@@ -74,7 +78,7 @@ func (r *EntitlementRepository) FindByUserID(ctx context.Context, userID string)
 
 	var e Entitlement
 	// JSONB columns are scanned as raw []byte and then unmarshalled.
-	var rawPrompts, rawSkills, rawMCPs []byte
+	var rawPrompts, rawSkills, rawMCPs, rawPerms []byte
 
 	err := row.Scan(
 		&e.ID,
@@ -83,6 +87,7 @@ func (r *EntitlementRepository) FindByUserID(ctx context.Context, userID string)
 		&rawPrompts,
 		&rawSkills,
 		&rawMCPs,
+		&rawPerms,
 		&e.BudgetLimitUSD,
 		&e.RateLimitRPM,
 		&e.RateLimitTPM,
@@ -105,6 +110,9 @@ func (r *EntitlementRepository) FindByUserID(ctx context.Context, userID string)
 	}
 	if err = unmarshalStringSlice(rawMCPs, &e.AllowedMCPs); err != nil {
 		return nil, fmt.Errorf("EntitlementRepository.FindByUserID: unmarshal allowed_mcps: %w", err)
+	}
+	if err = unmarshalStringSlice(rawPerms, &e.Permissions); err != nil {
+		return nil, fmt.Errorf("EntitlementRepository.FindByUserID: unmarshal permissions: %w", err)
 	}
 
 	return &e, nil

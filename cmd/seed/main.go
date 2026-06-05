@@ -200,8 +200,22 @@ func insertUser(ctx context.Context, conn *pgx.Conn) error {
 	return err
 }
 
-// insertUserEntitlement inserts open-access entitlements for the dev user (idempotent).
+// insertUserEntitlement inserts open-access entitlements for the dev user.
+// All console RBAC permissions are granted so the frontend module gates pass.
+// Uses ON CONFLICT DO UPDATE so re-running the seed refreshes the permissions.
 func insertUserEntitlement(ctx context.Context, conn *pgx.Conn) error {
+	const allConsolePerms = `[
+		"console.observability.read",
+		"console.monitor.read",
+		"console.telemetry.read",
+		"gateway.prompt_registry.read",
+		"gateway.prompt_registry.write",
+		"console.reports.read",
+		"console.reports.generate",
+		"console.admin.read",
+		"console.admin.write"
+	]`
+
 	const q = `
 		INSERT INTO user_entitlements (
 			id, user_id, org_id,
@@ -211,11 +225,12 @@ func insertUserEntitlement(ctx context.Context, conn *pgx.Conn) error {
 			'00000000-0000-0000-0000-000000000003',
 			'00000000-0000-0000-0000-000000000002',
 			'00000000-0000-0000-0000-000000000001',
-			'["*"]', '["*"]', '["*"]', '["*"]',
+			'["*"]', '["*"]', '["*"]', $1,
 			9999.00, 1000, 10000000, 'all_data'
-		) ON CONFLICT (user_id) DO NOTHING
+		) ON CONFLICT (user_id) DO UPDATE
+			SET permissions = EXCLUDED.permissions
 	`
-	_, err := conn.Exec(ctx, q)
+	_, err := conn.Exec(ctx, q, allConsolePerms)
 	return err
 }
 

@@ -29,6 +29,9 @@ import (
 type ConsoleAuthHandler struct {
 	// userRepo provides access to the users table.
 	userRepo *repository.UserRepository
+	// entRepo provides access to user_entitlements; used to read the
+	// permissions JSONB column and embed it in the issued JWT.
+	entRepo *repository.EntitlementRepository
 	// sessionRepo provides access to the console_sessions table.
 	sessionRepo *repository.ConsoleSessionRepository
 	// daemonRegistrationRepo provides access to the daemon_registrations table.
@@ -45,6 +48,7 @@ type ConsoleAuthHandler struct {
 // dependencies.
 func NewConsoleAuthHandler(
 	userRepo *repository.UserRepository,
+	entRepo *repository.EntitlementRepository,
 	sessionRepo *repository.ConsoleSessionRepository,
 	daemonRegistrationRepo *repository.DaemonRegistrationRepository,
 	jwtSvc *auth.JWTService,
@@ -53,6 +57,7 @@ func NewConsoleAuthHandler(
 ) *ConsoleAuthHandler {
 	return &ConsoleAuthHandler{
 		userRepo:               userRepo,
+		entRepo:                entRepo,
 		sessionRepo:            sessionRepo,
 		daemonRegistrationRepo: daemonRegistrationRepo,
 		jwtSvc:                 jwtSvc,
@@ -145,11 +150,13 @@ func (h *ConsoleAuthHandler) handleLogin(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	perms := h.loadPerms(r.Context(), user.ID)
+
 	accessToken, err := h.jwtSvc.Sign(auth.Claims{
 		UserID: user.ID,
 		OrgID:  user.OrgID,
 		Email:  user.Email,
-		Perms:  []string{},
+		Perms:  perms,
 	})
 	if err != nil {
 		h.log.Error().Err(err).Str("user_id", user.ID).Msg("handleLogin: sign jwt")
@@ -226,11 +233,13 @@ func (h *ConsoleAuthHandler) handleRefresh(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	perms := h.loadPerms(r.Context(), user.ID)
+
 	accessToken, err := h.jwtSvc.Sign(auth.Claims{
 		UserID: user.ID,
 		OrgID:  user.OrgID,
 		Email:  user.Email,
-		Perms:  []string{},
+		Perms:  perms,
 	})
 	if err != nil {
 		h.log.Error().Err(err).Str("user_id", user.ID).Msg("handleRefresh: sign jwt")
@@ -403,6 +412,23 @@ func (h *ConsoleAuthHandler) findUserByEmail(ctx context.Context, email string) 
 		return nil, fmt.Errorf("findUserByEmail: scan: %w", err)
 	}
 	return &u, nil
+}
+
+// loadPerms fetches the RBAC permission tokens from user_entitlements for the
+// given userID and returns them as a string slice suitable for JWT embedding.
+// On any error (missing entitlement row, DB failure) it logs a warning and
+// returns an empty slice so login still succeeds — RBAC simply grants nothing.
+func (h *ConsoleAuthHandler) loadPerms(ctx context.Context, userID string) []string {
+	ent, err := h.entRepo.FindByUserID(ctx, userID)
+	if err != nil {
+		h.log.Warn().Err(err).Str("user_id", userID).
+			Msg("loadPerms: could not load entitlement; JWT perms will be empty")
+		return []string{}
+	}
+	if len(ent.Permissions) == 0 {
+		return []string{}
+	}
+	return ent.Permissions
 }
 
 // hashToken returns the hex-encoded SHA-256 digest of the raw token string.

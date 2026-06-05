@@ -185,7 +185,7 @@ func run() error {
 	handler.Register(mux)
 
 	// console auth endpoints
-	authHandler := api.NewConsoleAuthHandler(userRepo, sessionRepo, daemonRegRepo, jwtSvc, cfg.DaemonAPIKey, *log)
+	authHandler := api.NewConsoleAuthHandler(userRepo, entRepo, sessionRepo, daemonRegRepo, jwtSvc, cfg.DaemonAPIKey, *log)
 	authHandler.Register(mux)
 
 	// console observability endpoints
